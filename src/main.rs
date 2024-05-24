@@ -1,10 +1,11 @@
 use anyhow::{bail, Result};
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Read};
 
-use crate::encoding::dbfile::Header;
+use crate::database::header::Header;
+use crate::database::DbAccess;
 
-mod encoding;
+mod database;
 
 // I have made the very unwise decision of not using any kind of parsing library
 // parsing is fun and I want to do it on my own
@@ -22,16 +23,20 @@ fn main() -> Result<()> {
     match command.as_str() {
         ".dbinfo" => {
             let file = File::open(&args[1])?;
-            let mut _header = [0; 100];
-
-            let reader = BufReader::new(file);
-            let header = Header::new(reader)?;
+            //let mut _header = [0; 100];
+            //file.read_exact(&mut _header)?;
+            //let reader = BufReader::new(&_header[..]);
+            //let header = Header::new(reader)?;
+            let mut dbaccess = DbAccess::new(file)?;
+            let number_of_tables = dbaccess.number_of_tables()?;
 
             // You can use print statements as follows for debugging, they'll be visible when running tests.
             println!("Logs from your program will appear here!");
 
             // Uncomment this block to pass the first stage
-            println!("database page size: {}", header.page_size);
+            println!("database page size: {}", dbaccess.header.page_size);
+            println!("number of tables: {}", number_of_tables);
+            //println!("number of tables: {}", header.size);
         }
         _ => bail!("Missing or invalid command passed: {}", command),
     }

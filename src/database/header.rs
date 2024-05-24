@@ -24,7 +24,6 @@ pub(crate) enum SchemaFormat {
 
 impl From<u32> for SchemaFormat {
     fn from(value: u32) -> Self {
-        println!("Format : {value}");
         match value {
             1 => Self::Format1,
             2 => Self::Format2,
@@ -84,6 +83,8 @@ pub(crate) enum HeaderError {
     InvalidFractionError,
     #[error("vacuum mode inconsistent")]
     VacuumModeError,
+    #[error("invalid btree page type value {0}")]
+    BTreePageTypeError(u8),
 }
 
 impl Header {
@@ -98,6 +99,7 @@ impl Header {
         r.read_exact(&mut b)?;
         let page_size = u16::from_be_bytes(b);
         let write_ver = &0;
+        // FIXME: I don't think this works
         let read_ver = &0;
         r.read_exact(&mut [*write_ver, *read_ver])?;
         let _padding = &0;
@@ -175,6 +177,76 @@ impl Header {
             application_id,
             version_valid_for,
             sqlite_version,
+        })
+    }
+}
+pub(crate) enum BTreePageType {
+    InteriorIndex,
+    InteriorTable,
+    LeafIndex,
+    LeafTable,
+}
+impl TryFrom<u8> for BTreePageType {
+    type Error = HeaderError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            2 => Self::InteriorIndex,
+            5 => Self::InteriorTable,
+            10 => Self::LeafIndex,
+            13 => Self::LeafTable,
+            _ => return Err(HeaderError::BTreePageTypeError(value)),
+        })
+    }
+}
+
+pub(crate) struct BTreeHeader {
+    pub(crate) page_type: BTreePageType,
+    /// zero if no freeblocks
+    freeblock_start: u16,
+    pub(crate) cell_count: u16,
+    /// only u32 because 0 => 65536
+    pub(crate) cell_start: u32,
+    /// number of fragmented bytes within cell content area
+    fragments: u8,
+    /// only for InteriorIndex->rightmost pointer
+    pub(crate) right_ptr: Option<u32>,
+}
+impl BTreeHeader {
+    pub(crate) fn new(mut r: impl Read) -> anyhow::Result<Self> {
+        let mut single_byte = [0];
+        let mut two_bytes = [0; 2];
+        let mut four_bytes = [0; 4];
+        r.read_exact(&mut single_byte)?;
+        let page_type = BTreePageType::try_from(single_byte[0])?;
+        r.read_exact(&mut two_bytes)?;
+        let freeblock_start = u16::from_be_bytes(two_bytes);
+        r.read_exact(&mut two_bytes)?;
+        let cell_count = u16::from_be_bytes(two_bytes);
+        r.read_exact(&mut two_bytes)?;
+        let cell_start = u16::from_be_bytes(two_bytes);
+        let cell_start = if cell_start == 0 {
+            0x10000
+        } else {
+            cell_start as u32
+        };
+        r.read_exact(&mut single_byte)?;
+        let fragments = single_byte[0];
+        let right_ptr = match page_type {
+            BTreePageType::InteriorIndex | BTreePageType::InteriorTable => {
+                r.read_exact(&mut four_bytes)?;
+                Some(u32::from_be_bytes(four_bytes))
+            }
+            BTreePageType::LeafIndex | BTreePageType::LeafTable => None,
+        };
+        r.read_exact(&mut four_bytes)?;
+        Ok(Self {
+            page_type,
+            freeblock_start,
+            cell_count,
+            cell_start,
+            fragments,
+            right_ptr,
         })
     }
 }
