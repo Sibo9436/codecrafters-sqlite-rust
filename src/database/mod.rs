@@ -5,7 +5,7 @@ use self::{
     record::Record,
     tree::{BTreeTableReader, PageSupplier},
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 
 pub(crate) mod header;
 mod page;
@@ -103,7 +103,7 @@ impl PageSupplier for DbAccess {
     }
 
     fn read_page(&mut self, page_idx: usize) -> anyhow::Result<&[u8]> {
-        let _ = self.move_to_page(page_idx)?;
+        self.move_to_page(page_idx)?;
         Ok(&self.page[self.start_offset..])
     }
 }

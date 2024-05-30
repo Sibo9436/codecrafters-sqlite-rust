@@ -1,4 +1,4 @@
-use std::{collections::HashMap, default, fmt::Display, ops::Deref, str::SplitWhitespace};
+use std::{fmt::Display};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub(super) enum TokenType {
@@ -248,7 +248,7 @@ pub(crate) fn scan(s: &str) -> Vec<Token> {
                 let start = cur;
                 while let Some(&c) = it.peek() {
                     //println!("reading num {c}");
-                    if !matches!(c, b'0'..=b'9') {
+                    if !c.is_ascii_digit() {
                         break;
                     } else {
                         it.next();

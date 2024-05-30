@@ -8,7 +8,7 @@
 //! column-constraint: 'PRIMARY' 'KEY'; // SI NON NE SUPPORTO MOLTI
 //!
 
-use std::io::{self, Write};
+use std::io::{Write};
 
 use thiserror::Error;
 
@@ -291,7 +291,7 @@ impl<'a> Parser<'a> {
     // FIXME: I'm convinced this could be rewritten in a better way
     fn logic_or(&mut self) -> Result<syntax::Expr, ParseError> {
         let mut expr = self.logic_and()?;
-        while let Ok(_) = self.matches(|typ| matches!(typ.typ, TokenType::OR), "expected OR") {
+        while self.matches(|typ| matches!(typ.typ, TokenType::OR), "expected OR").is_ok() {
             let right = self.logic_and()?;
             expr = syntax::Expr::Binary {
                 left: Box::new(expr),
@@ -303,7 +303,7 @@ impl<'a> Parser<'a> {
     }
     fn logic_and(&mut self) -> Result<syntax::Expr, ParseError> {
         let mut expr = self.equality()?;
-        while let Ok(_) = self.matches(|typ| matches!(typ.typ, TokenType::AND), "expected AND") {
+        while self.matches(|typ| matches!(typ.typ, TokenType::AND), "expected AND").is_ok() {
             let right = self.equality()?;
             expr = syntax::Expr::Binary {
                 left: Box::new(expr),
@@ -425,7 +425,7 @@ impl<'a> Parser<'a> {
     fn call(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.primary()?;
         Ok(loop {
-            if let Ok(_) = self.matches(|t| matches!(t.typ, TokenType::OPENP), "aaa") {
+            if self.matches(|t| matches!(t.typ, TokenType::OPENP), "aaa").is_ok() {
                 expr = self.finish_call(expr)?;
             } else {
                 break expr;
@@ -449,7 +449,7 @@ impl<'a> Parser<'a> {
                 loop {
                     let expr = self.expression()?;
                     args.push(expr);
-                    if let Err(_) = self.matches(|t| t.typ == TokenType::COMMA, "yeet") {
+                    if self.matches(|t| t.typ == TokenType::COMMA, "yeet").is_err() {
                         break;
                     }
                 }
@@ -488,7 +488,7 @@ impl<'a> Parser<'a> {
                     expr: Box::new(expr),
                 })
             }
-            _ => return Err(ParseError::InvalidKeyword(p.lexeme.to_owned())),
+            _ => Err(ParseError::InvalidKeyword(p.lexeme.to_owned())),
         }
     }
 }

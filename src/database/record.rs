@@ -4,7 +4,6 @@ use thiserror::Error;
 
 use crate::database::varint::Varint;
 
-use super::schema::RowDef;
 
 #[derive(Debug, Error)]
 pub(super) enum RecordError {
@@ -61,7 +60,7 @@ impl Record {
                 reader
                     .read_exact(&mut b[2..])
                     .map_err(|e| RecordError::InternalError(e.to_string()))?;
-                Ok(Record::Integer(i64::from_be_bytes(b) as i64))
+                Ok(Record::Integer(i64::from_be_bytes(b)))
             }
             RecordType::I64 => {
                 let mut b = [0; 8];
@@ -101,7 +100,7 @@ impl Record {
         let (header_size, first_size) = Varint::read_sized(&mut reader)
             .map_err(|e| RecordError::InternalError(e.to_string()))?;
         let mut rest_of_header = vec![0; header_size.0 as usize - first_size];
-        let _ = reader
+        reader
             .read_exact(&mut rest_of_header)
             .map_err(|e| RecordError::InternalError(e.to_string()))?;
         let mut types = Vec::new();

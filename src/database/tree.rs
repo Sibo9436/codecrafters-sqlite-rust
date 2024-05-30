@@ -1,4 +1,4 @@
-use std::{error::Error, io::Read};
+use std::{io::Read};
 
 use crate::database::varint::Varint;
 
@@ -62,7 +62,7 @@ impl BTreeTableReader {
                     let payload_size =
                         Varint::read(&mut r).map_err(|e| eprintln!("{e}"))?.0 as usize;
                     let mut payload = vec![0; payload_size];
-                    let _ = r.read_exact(&mut payload).map_err(|e| eprintln!("{e}"))?;
+                    r.read_exact(&mut payload).map_err(|e| eprintln!("{e}"))?;
                     //indices.append(payload);
                 }
                 let mut res = Vec::new();
@@ -78,7 +78,7 @@ impl BTreeTableReader {
                     let mut payload = vec![0; payload_size.0 as usize];
                     // NOTE: what if instead of passing the reader into functions
                     // I just implemented traits for all readers ???
-                    let _ = r.read_exact(&mut payload).map_err(|e| eprintln!("{e}"))?;
+                    r.read_exact(&mut payload).map_err(|e| eprintln!("{e}"))?;
                     // NOTE: omitting overflow page (4 bytes)
 
                     res.push(payload);

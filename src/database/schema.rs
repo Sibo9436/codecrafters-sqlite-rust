@@ -1,4 +1,4 @@
-const SCHEMA_DEF: &'static str = "CREATE TABLE sqlite_schema(
+const SCHEMA_DEF: &str = "CREATE TABLE sqlite_schema(
   type text,
   name text,
   tbl_name text,

@@ -140,7 +140,7 @@ impl Header {
         }
         r.read_exact(&mut b)?;
         let application_id = u32::from_be_bytes(b);
-        let _ = r.read_exact(&mut [0; 20])?;
+        r.read_exact(&mut [0; 20])?;
         r.read_exact(&mut b)?;
         let version_valid_for = u32::from_be_bytes(b);
         r.read_exact(&mut b)?;
