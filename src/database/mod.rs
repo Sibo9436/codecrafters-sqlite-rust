@@ -2,12 +2,15 @@ use std::{fs::File, os::unix::fs::FileExt};
 
 use self::{
     header::Header,
+    record::Record,
     tree::{BTreeTableReader, PageSupplier},
 };
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 
 pub(crate) mod header;
 mod page;
+mod record;
+mod schema;
 mod tree;
 mod varint;
 
@@ -65,15 +68,32 @@ impl DbAccess {
 
     /// Reads schema table
     /// NOTE: non deve essere pubblica e dovrà restituire uno schema :)
-    pub(crate) fn read_schema(&mut self) -> Result<Vec<Vec<u8>>> {
+    pub(crate) fn read_schema(&mut self) -> Result<Vec<Vec<Record>>> {
         let table_reader = BTreeTableReader {};
         table_reader
             .find_all_in_table(1, self)
             .map_err(|_| anyhow::format_err!("shit"))
+            .and_then(|mut v| {
+                v.iter_mut()
+                    .map(|row| {
+                        Record::read_row(row.as_slice()).map_err(|e| anyhow::anyhow!("{e:?}"))
+                    })
+                    .collect()
+            })
     }
 
     pub(crate) fn number_of_tables(&mut self) -> Result<usize> {
         self.read_schema().map(|v| v.len())
+    }
+
+    pub(crate) fn table_names(&mut self) -> Result<Vec<String>> {
+        self.read_schema()?
+            .into_iter()
+            .map(|v| match v.get(1) {
+                Some(Record::String(s)) => Ok(s.clone()),
+                _ => Err(anyhow::anyhow!("invalid schema")),
+            })
+            .collect()
     }
 }
 impl PageSupplier for DbAccess {

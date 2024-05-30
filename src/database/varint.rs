@@ -5,6 +5,16 @@ use thiserror::Error;
 #[derive(PartialEq, Eq, Debug)]
 pub(crate) struct Varint(pub i64);
 
+pub(super) trait ReadVarint {
+    fn read_varint(&mut self) -> Result<Varint, VarintError>;
+}
+
+impl<T: Read> ReadVarint for T {
+    fn read_varint(&mut self) -> Result<Varint, VarintError> {
+        Varint::read(self)
+    }
+}
+
 impl Display for Varint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
@@ -20,7 +30,7 @@ impl Display for VarintError {
 }
 
 impl Varint {
-    pub(crate) fn read(mut r: impl Read) -> Result<Varint, VarintError> {
+    pub(crate) fn read_sized(mut r: impl Read) -> Result<(Varint, usize), VarintError> {
         let mut res: u64 = 0;
         let mut buf = [0];
         let mut counter = 1;
@@ -29,11 +39,14 @@ impl Varint {
             res <<= 7;
             res |= (*ptr & 0x7F) as u64;
             if *ptr & 0x80 == 0 || counter == 9 {
-                return Ok(Varint(res as i64));
+                return Ok((Varint(res as i64), counter));
             }
             counter += 1;
         }
         Err(VarintError)
+    }
+    pub(crate) fn read(r: impl Read) -> Result<Varint, VarintError> {
+        Self::read_sized(r).map(|v| v.0)
     }
 }
 
