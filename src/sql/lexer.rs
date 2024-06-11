@@ -1,4 +1,4 @@
-use std::{fmt::Display};
+use std::fmt::Display;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub(super) enum TokenType {
@@ -27,8 +27,13 @@ pub(super) enum TokenType {
     EQUALS,
 
     //Keywords
+    //SQL has so many fucking keywords that I'm sad I implemented them this way
     CREATE,
     PRIMARY,
+    ASC,
+    DESC,
+    AUTOINCREMENT,
+    UNIQUE,
     KEY,
     SELECT,
     FROM,
@@ -43,6 +48,13 @@ pub(super) enum TokenType {
     TRUE,
     FALSE,
     STRING,
+    ON,
+    CONFLICT,
+    ROLLBACK,
+    ABORT,
+    FAIL,
+    IGNORE,
+    REPLACE,
 }
 
 impl Display for TokenType {
@@ -85,6 +97,17 @@ impl Display for TokenType {
             TokenType::TRUE => "TRUE",
             TokenType::FALSE => "FALSE",
             TokenType::STRING => "STRING",
+            TokenType::ASC => "ASC",
+            TokenType::DESC => "DESC",
+            TokenType::AUTOINCREMENT => "AUTOINCREMENT",
+            TokenType::UNIQUE => "UNIQUE",
+            TokenType::ON => "ON",
+            TokenType::CONFLICT => "CONFLICT",
+            TokenType::ROLLBACK => "ROLLBACK",
+            TokenType::ABORT => "ABORT",
+            TokenType::FAIL => "FAIL",
+            TokenType::IGNORE => "IGNORE",
+            TokenType::REPLACE => "REPLACE",
         };
         write!(f, "{val}")
     }
@@ -106,6 +129,18 @@ fn map_token(s: &str) -> Option<TokenType> {
         "NULL" => TokenType::NULL,
         "TRUE" => TokenType::TRUE,
         "FALSE" => TokenType::FALSE,
+        "ASC" => TokenType::ASC,
+        "DESC" => TokenType::DESC,
+        "AUTOINCREMENT" => TokenType::AUTOINCREMENT,
+        "UNIQUE" => TokenType::UNIQUE,
+        "ON" => TokenType::ON,
+        "CONFLICT" => TokenType::CONFLICT,
+        "ROLLBACK" => TokenType::ROLLBACK,
+        "ABORT" => TokenType::ABORT,
+        "FAIL" => TokenType::FAIL,
+        "IGNORE" => TokenType::IGNORE,
+        "REPLACE" => TokenType::REPLACE,
+
         _ => return None,
     };
     Some(t)
@@ -161,9 +196,10 @@ pub(crate) fn scan(s: &str) -> Vec<Token> {
                 typ: TokenType::EQUALS,
                 lexeme: "=",
             },
-            '!' => match it.peek().expect("incomplete '='") {
+            '!' => match it.peek().expect("incomplete '!'") {
                 b'=' => {
                     it.next();
+                    cur += 1;
                     Token {
                         typ: TokenType::NOTEQUALS,
                         lexeme: "!=",
@@ -176,6 +212,7 @@ pub(crate) fn scan(s: &str) -> Vec<Token> {
             },
             '<' => match it.peek().expect("incomplete '='") {
                 b'=' => {
+                    cur += 1;
                     it.next();
                     Token {
                         typ: TokenType::LESSEQ,
@@ -189,6 +226,7 @@ pub(crate) fn scan(s: &str) -> Vec<Token> {
             },
             '>' => match it.peek().expect("incomplete '='") {
                 b'=' => {
+                    cur += 1;
                     it.next();
                     Token {
                         typ: TokenType::GREATEREQ,
@@ -223,6 +261,25 @@ pub(crate) fn scan(s: &str) -> Vec<Token> {
                     lexeme,
                 }
             }
+            '"' => {
+                let start = cur + 1;
+                while let Some(&c) = it.peek() {
+                    let c = *c as char;
+                    if c != '"' {
+                        it.next();
+                        cur += 1;
+                    } else {
+                        it.next();
+                        cur += 1;
+                        break;
+                    }
+                }
+                let lexeme = &s[start..cur];
+                Token {
+                    typ: TokenType::IDENTIFIER,
+                    lexeme,
+                }
+            }
             'a'..='z' | 'A'..='Z' => {
                 let start = cur;
                 while let Some(&c) = it.peek() {
@@ -248,7 +305,7 @@ pub(crate) fn scan(s: &str) -> Vec<Token> {
                 let start = cur;
                 while let Some(&c) = it.peek() {
                     //println!("reading num {c}");
-                    if !c.is_ascii_digit() {
+                    if !c.is_ascii_digit() && c != &b'.' {
                         break;
                     } else {
                         it.next();
@@ -303,7 +360,7 @@ mod test {
                 },
                 Token {
                     typ: TokenType::EOF,
-                    lexeme: ""
+                    lexeme: "EOF"
                 },
             ],
             scan("SELECT miao FROM gatto")
@@ -364,7 +421,7 @@ mod test {
                 },
                 Token {
                     typ: TokenType::EOF,
-                    lexeme: ""
+                    lexeme: "EOF"
                 },
             ],
             scan("CREATE TABLE gatto(\n miao TEXT,\n id INTEGER PRIMARY KEY \n);")
@@ -372,7 +429,7 @@ mod test {
     }
     #[test]
     fn test_numbers() {
-        let nums = "12 * 13 * (18 - 10 )/ 7 + 501";
+        let nums = "12 * 13 * (18 - 10 )/ 7 + 501 != 10";
         let nums = scan(nums);
         println!("{nums:?}");
     }
@@ -386,6 +443,12 @@ mod test {
   sql text
 );";
         let schema = scan(schema);
+        println!("{schema:?}");
+    }
+    #[test]
+    fn test_where() {
+        let query = "WHERE 10 = 10 AND 9 != 10 AND 'CIAO' != 'ciao'";
+        let schema = scan(query);
         println!("{schema:?}");
     }
 }

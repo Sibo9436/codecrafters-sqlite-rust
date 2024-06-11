@@ -8,11 +8,9 @@
 //! column-constraint: 'PRIMARY' 'KEY'; // SI NON NE SUPPORTO MOLTI
 //!
 
-use std::io::{Write};
-
 use thiserror::Error;
 
-use self::syntax::{ColType, Expr, FunctionArg, Operator};
+use super::syntax::{self, ColType, ColumnConstraint, ConflictClause, Expr, FunctionArg, Operator};
 
 use super::lexer::{Token, TokenType};
 
@@ -35,89 +33,6 @@ pub(crate) enum ParseError {
     ExpectedToken(TokenType),
     #[error("{0}")]
     CustomError(&'static str),
-}
-
-mod syntax {
-    #[derive(Debug, PartialEq, Eq)]
-    pub(super) enum Statement {
-        Create(CreateStatement),
-        Select(SelectStatement),
-    }
-    #[derive(Debug, PartialEq, Eq)]
-    pub(super) enum CreateStatement {
-        Table {
-            name: String,
-            cols: Vec<ColumnDefinition>,
-        },
-    }
-    #[derive(Debug, PartialEq, Eq)]
-    pub(super) struct ColumnDefinition {
-        pub name: String,
-        pub position: usize,
-        pub typ: ColType,
-    }
-
-    #[derive(Debug, PartialEq, Eq)]
-    pub(super) enum ColType {
-        INTEGER,
-        TEXT,
-    }
-    #[derive(Debug, PartialEq, Eq)]
-    pub(super) struct SelectStatement {
-        pub from: String,
-        pub fields: Vec<Expr>,
-        pub filter: Option<Expr>,
-    }
-    #[derive(Debug, PartialEq, Eq)]
-    pub(super) enum Expr {
-        Identifier {
-            value: String,
-        },
-        Literal {
-            value: String,
-        },
-
-        Binary {
-            left: Box<Expr>,
-            right: Box<Expr>,
-            operator: Operator,
-        },
-        Unary {
-            operator: Operator,
-            expr: Box<Expr>,
-        },
-        Function {
-            name: String,
-            args: FunctionArg,
-        },
-        Grouping {
-            expr: Box<Expr>,
-        },
-    }
-
-    #[derive(Debug, PartialEq, Eq)]
-    pub(super) enum Operator {
-        Plus,
-        Minus,
-        Equals,
-        Bang,
-        Notequals,
-        // NOTE: we use the inverse for <= and >= (a<=b means b > a)
-        Less,
-        Greater,
-        LessEq,
-        GreaterEq,
-        Asterisk,
-        Slash,
-        Or,
-        And,
-        Not,
-    }
-    #[derive(Debug, PartialEq, Eq)]
-    pub(super) enum FunctionArg {
-        Star,
-        Args(Vec<Expr>),
-    }
 }
 
 impl<'a> Parser<'a> {
@@ -218,6 +133,7 @@ impl<'a> Parser<'a> {
             _ => Err(ParseError::ExpectedToken(typ)),
         }
     }
+    /// Checks whether the condition is satisfied by the next token and in that case advances
     fn matches<F>(&mut self, f: F, error: &'static str) -> Result<&Token<'a>, ParseError>
     where
         F: Fn(&Token<'a>) -> bool,
@@ -268,18 +184,89 @@ impl<'a> Parser<'a> {
         {
             TokenType::INTEGER => ColType::INTEGER,
             TokenType::TEXT => ColType::TEXT,
-            _ => unreachable!("ehiehiehi"),
+            v => unreachable!("ehiehiehi che è sta roba {v:?}"),
         };
-        let next = self.peek().unwrap();
-        if next.typ == TokenType::PRIMARY {
-            self.step().unwrap();
-            self.expect(TokenType::KEY)?;
+        let mut constraint = Vec::new();
+        while let Some(c) = self.column_constraint()? {
+            constraint.push(c);
         }
+
         Ok(syntax::ColumnDefinition {
             name,
             position: pos,
             typ,
+            constraint,
         })
+    }
+    fn column_constraint(&mut self) -> Result<Option<ColumnConstraint>, ParseError> {
+        if let Ok(next) = self.matches(
+            |t| {
+                matches!(
+                    t.typ,
+                    TokenType::PRIMARY | TokenType::NOT | TokenType::UNIQUE
+                )
+            },
+            "should never print this",
+        ) {
+            match next.typ {
+                TokenType::PRIMARY => {
+                    self.expect(TokenType::KEY)?;
+                    let mut asc = true;
+                    if let Ok(t) =
+                        self.matches(|t| matches!(t.typ, TokenType::ASC | TokenType::DESC), "Meh")
+                    {
+                        asc = t.typ == TokenType::ASC;
+                    }
+                    let conflict = self.conflict_clause()?;
+                    let autoinc = self
+                        .matches(|t| t.typ == TokenType::AUTOINCREMENT, "Mah")
+                        .is_ok();
+                    Ok(Some(ColumnConstraint::Pk {
+                        asc,
+                        autoinc,
+                        conflict,
+                    }))
+                }
+                TokenType::NOT => {
+                    self.expect(TokenType::NULL)?;
+                    Ok(Some(ColumnConstraint::NotNull(self.conflict_clause()?)))
+                }
+                TokenType::UNIQUE => Ok(Some(ColumnConstraint::Unique(self.conflict_clause()?))),
+                _ => unreachable!("Ooioioioi"),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+    fn conflict_clause(&mut self) -> Result<Option<ConflictClause>, ParseError> {
+        if self.matches(|t| t.typ == TokenType::ON, "oi").is_err() {
+            return Ok(None);
+        }
+        self.expect(TokenType::CONFLICT)?;
+        if let Ok(tok) = self.matches(
+            |t| {
+                matches!(
+                    t.typ,
+                    TokenType::ROLLBACK
+                        | TokenType::ABORT
+                        | TokenType::FAIL
+                        | TokenType::IGNORE
+                        | TokenType::REPLACE
+                )
+            },
+            "yolo",
+        ) {
+            match tok.typ {
+                TokenType::ROLLBACK => Ok(Some(ConflictClause::Rollback)),
+                TokenType::ABORT => Ok(Some(ConflictClause::Abort)),
+                TokenType::FAIL => Ok(Some(ConflictClause::Fail)),
+                TokenType::IGNORE => Ok(Some(ConflictClause::Ignore)),
+                TokenType::REPLACE => Ok(Some(ConflictClause::Replace)),
+                _ => unreachable!("Mo'"),
+            }
+        } else {
+            Ok(None)
+        }
     }
 
     // NOTE: Operator precedence is taken from https://learn.microsoft.com/en-us/sql/t-sql/language-elements/operator-precedence-transact-sql?view=sql-server-ver16
@@ -291,7 +278,10 @@ impl<'a> Parser<'a> {
     // FIXME: I'm convinced this could be rewritten in a better way
     fn logic_or(&mut self) -> Result<syntax::Expr, ParseError> {
         let mut expr = self.logic_and()?;
-        while self.matches(|typ| matches!(typ.typ, TokenType::OR), "expected OR").is_ok() {
+        while self
+            .matches(|typ| matches!(typ.typ, TokenType::OR), "expected OR")
+            .is_ok()
+        {
             let right = self.logic_and()?;
             expr = syntax::Expr::Binary {
                 left: Box::new(expr),
@@ -303,7 +293,10 @@ impl<'a> Parser<'a> {
     }
     fn logic_and(&mut self) -> Result<syntax::Expr, ParseError> {
         let mut expr = self.equality()?;
-        while self.matches(|typ| matches!(typ.typ, TokenType::AND), "expected AND").is_ok() {
+        while self
+            .matches(|typ| matches!(typ.typ, TokenType::AND), "expected AND")
+            .is_ok()
+        {
             let right = self.equality()?;
             expr = syntax::Expr::Binary {
                 left: Box::new(expr),
@@ -425,7 +418,10 @@ impl<'a> Parser<'a> {
     fn call(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.primary()?;
         Ok(loop {
-            if self.matches(|t| matches!(t.typ, TokenType::OPENP), "aaa").is_ok() {
+            if self
+                .matches(|t| matches!(t.typ, TokenType::OPENP), "aaa")
+                .is_ok()
+            {
                 expr = self.finish_call(expr)?;
             } else {
                 break expr;
@@ -474,12 +470,30 @@ impl<'a> Parser<'a> {
                 value: p.lexeme.to_owned(),
             }),
             // TODO: I guess this could use a little bit more...oopmh
-            TokenType::TRUE
-            | TokenType::FALSE
-            | TokenType::NULL
-            | TokenType::NUMBER
-            | TokenType::STRING => Ok(Expr::Literal {
-                value: p.lexeme.to_owned(),
+            TokenType::TRUE => Ok(Expr::Literal {
+                value: syntax::DbValue::Bool(true),
+            }),
+            TokenType::FALSE => Ok(Expr::Literal {
+                value: syntax::DbValue::Bool(false),
+            }),
+            TokenType::NULL => Ok(Expr::Literal {
+                value: syntax::DbValue::Null,
+            }),
+            TokenType::NUMBER => {
+                Ok(Expr::Literal {
+                    value: if p.lexeme.contains('.') {
+                        syntax::DbValue::Float(p.lexeme.parse::<f64>().map_err(|_| {
+                            ParseError::CustomError("could not parse number into i64")
+                        })?)
+                    } else {
+                        syntax::DbValue::Integer(i64::from_str_radix(&p.lexeme, 10).map_err(
+                            |_| ParseError::CustomError("could not parse number into i64"),
+                        )?)
+                    },
+                })
+            }
+            TokenType::STRING => Ok(Expr::Literal {
+                value: syntax::DbValue::Text(p.lexeme.to_owned()),
             }),
             TokenType::OPENP => {
                 let expr = self.expression()?;
@@ -594,11 +608,17 @@ mod test {
                         name: "miao".to_owned(),
                         position: 0,
                         typ: ColType::TEXT,
+                        constraint: Vec::new(),
                     },
                     ColumnDefinition {
                         name: "id".to_owned(),
                         position: 1,
                         typ: ColType::INTEGER,
+                        constraint: vec![ColumnConstraint::Pk {
+                            asc: true,
+                            autoinc: false,
+                            conflict: None
+                        }]
                     }
                 ]
             })]

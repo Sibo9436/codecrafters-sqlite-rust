@@ -1,9 +1,8 @@
-use std::io::Read;
+use std::{fmt::Display, io::Read};
 
 use thiserror::Error;
 
-use crate::database::varint::Varint;
-
+use crate::{database::varint::Varint, sql::syntax::DbValue};
 
 #[derive(Debug, Error)]
 pub(super) enum RecordError {
@@ -21,6 +20,19 @@ pub(crate) enum Record {
     Blob(Vec<u8>),
     String(String),
     Zero,
+}
+
+impl Display for Record {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Record::Null => write!(f, "NULL"),
+            Record::Integer(v) => write!(f, "{v}"),
+            Record::Float(v) => write!(f, "{v}"),
+            Record::Blob(v) => write!(f, "{}", String::from_utf8_lossy(v)),
+            Record::String(v) => v.fmt(f),
+            Record::Zero => write!(f, "0"),
+        }
+    }
 }
 
 impl Record {
@@ -143,4 +155,17 @@ enum RecordType {
     One,
     Blob(usize),
     String(usize),
+}
+
+impl From<Record> for DbValue {
+    fn from(value: Record) -> Self {
+        match value {
+            Record::Null => Self::Null,
+            Record::Integer(i) => Self::Integer(i),
+            Record::Float(f) => Self::Float(f),
+            Record::Blob(b) => Self::Blob(b),
+            Record::String(s) => Self::Text(s),
+            Record::Zero => Self::Integer(0),
+        }
+    }
 }

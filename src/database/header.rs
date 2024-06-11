@@ -180,6 +180,7 @@ impl Header {
         })
     }
 }
+#[derive(Debug)]
 pub(crate) enum BTreePageType {
     InteriorIndex,
     InteriorTable,
@@ -200,15 +201,16 @@ impl TryFrom<u8> for BTreePageType {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct BTreeHeader {
     pub(crate) page_type: BTreePageType,
     /// zero if no freeblocks
-    freeblock_start: u16,
+    pub freeblock_start: u16,
     pub(crate) cell_count: u16,
     /// only u32 because 0 => 65536
     pub(crate) cell_start: u32,
     /// number of fragmented bytes within cell content area
-    fragments: u8,
+    pub fragments: u8,
     /// only for InteriorIndex->rightmost pointer
     pub(crate) right_ptr: Option<u32>,
 }

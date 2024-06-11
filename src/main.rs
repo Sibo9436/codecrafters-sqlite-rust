@@ -19,10 +19,10 @@ fn main() -> Result<()> {
 
     // Parse command and act accordingly
     let command = &args[2];
+    let file = File::open(&args[1])?;
+    let mut dbaccess = DbAccess::new(file)?;
     match command.as_str() {
         ".dbinfo" => {
-            let file = File::open(&args[1])?;
-            let mut dbaccess = DbAccess::new(file)?;
             let number_of_tables = dbaccess.number_of_tables()?;
 
             // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -34,10 +34,12 @@ fn main() -> Result<()> {
             //println!("number of tables: {}", header.size);
         }
         ".tables" => {
-            let file = File::open(&args[1])?;
-            let mut dbaccess = DbAccess::new(file)?;
             let names = dbaccess.table_names()?.join(" ");
             println!("{names}");
+        }
+        query => {
+            let rows = dbaccess.run_query(query);
+            println!("{rows:?}");
         }
         _ => bail!("Missing or invalid command passed: {}", command),
     }
