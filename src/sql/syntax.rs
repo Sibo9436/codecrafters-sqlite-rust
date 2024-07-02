@@ -1,4 +1,7 @@
-use std::ops::{Add, Div, Mul, Neg, Not, Sub};
+use std::{
+    fmt::Write,
+    ops::{Add, Div, Mul, Neg, Not, Sub},
+};
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 pub(crate) enum DbValue {
@@ -21,14 +24,14 @@ pub(crate) enum CreateStatement {
         cols: Vec<ColumnDefinition>,
     },
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) struct ColumnDefinition {
     pub name: String,
     pub position: usize,
     pub typ: ColType,
     pub constraint: Vec<ColumnConstraint>,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) enum ColumnConstraint {
     Pk {
         asc: bool,
@@ -39,7 +42,7 @@ pub(crate) enum ColumnConstraint {
     Unique(Option<ConflictClause>),
     //Default()
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) enum ConflictClause {
     Rollback,
     Abort,
@@ -47,7 +50,7 @@ pub(crate) enum ConflictClause {
     Ignore,
     Replace,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) enum ColType {
     INTEGER,
     TEXT,
@@ -58,7 +61,7 @@ pub(crate) struct SelectStatement {
     pub fields: Vec<Expr>,
     pub filter: Option<Expr>,
 }
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) enum Expr {
     Identifier {
         value: String,
@@ -85,7 +88,7 @@ pub(crate) enum Expr {
     },
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) enum Operator {
     Plus,
     Minus,
@@ -103,7 +106,7 @@ pub(crate) enum Operator {
     And,
     Not,
 }
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) enum FunctionArg {
     Star,
     Args(Vec<Expr>),

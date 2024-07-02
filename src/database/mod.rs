@@ -1,10 +1,13 @@
 use std::{collections::HashMap, fs::File, os::unix::fs::FileExt};
 
-use crate::sql::{
-    self, parse_sql,
-    syntax::{
-        ColType, ColumnConstraint, ColumnDefinition, CreateStatement, DbValue, Expr,
-        SelectStatement, Statement, Visit,
+use crate::{
+    database::query::{QueryFilter, QuerySelect, Row, Table},
+    sql::{
+        self, parse_sql,
+        syntax::{
+            ColType, ColumnConstraint, ColumnDefinition, CreateStatement, DbValue, Expr,
+            SelectStatement, Statement, Visit,
+        },
     },
 };
 
@@ -106,7 +109,7 @@ impl DbAccess {
             })
             .collect()
     }
-    pub(crate) fn run_query(&mut self, query: &str) -> Vec<Vec<Vec<DbValue>>> {
+    pub(crate) fn run_query(&mut self, query: &str) -> Vec<Table> {
         let statements = parse_sql(query);
         let mut rows = Vec::new();
         for stmt in &statements {
@@ -132,7 +135,7 @@ impl DbAccess {
             // WEARESOTHERE
             //unimplemented!("we are not there yet :)")
             // for now we panic
-            let mut row = res.swap_remove(0).swap_remove(0);
+            let mut row = res.swap_remove(0).rows.swap_remove(0).row;
             let rootpage = row.remove(0);
             let sql = row.remove(0);
             if let (DbValue::Integer(rootpage), DbValue::Text(sql)) = (rootpage, sql) {
@@ -153,12 +156,16 @@ impl PageSupplier for DbAccess {
         self.move_to_page(page_idx)?;
         Ok(&self.page[self.start_offset..])
     }
+
+    fn page(&self) -> &[u8] {
+        &self.page
+    }
 }
 
 // NOTE: I'm not super sure abot this
 enum QueryStep {
     FilterStep(Box<dyn Fn(&HashMap<String, DbValue>) -> DbValue>),
-    QueryResult(Vec<Vec<DbValue>>),
+    QueryResult(Table),
     ExecuteResult,
 }
 impl Visit<QueryStep> for DbAccess {
@@ -176,7 +183,7 @@ impl Visit<QueryStep> for DbAccess {
             sql::syntax::Statement::Select(SelectStatement {
                 from,
                 fields,
-                filter,
+                ref filter,
             }) => {
                 let (rootpage, table_def) = self.get_table_def(from);
                 let table_def = &parse_sql(&table_def)[0];
@@ -189,66 +196,31 @@ impl Visit<QueryStep> for DbAccess {
                     unreachable!("we should be in a create statement at this point of our lives")
                 }
                 let table_reader = BTreeTableReader {};
-                let rows = match filter {
-                    Some(filter) => {
-                        let filter = expression::precompile_expr(filter);
-                        table_reader
-                            .scan_table(rootpage as usize, self, &|rowid, v| {
-                                let row = Record::read_row(v).expect(":c");
-                                print!("Read row: ");
-                                for r in &row {
-                                    print!("{rowid}:{r} ");
-                                }
-                                println!("---");
-                                let row: Vec<DbValue> = row
-                                    .into_iter()
-                                    // TODO: sta roba è ripetuta già due volte e quindi va astratta
-                                    // che qui fa schifio
-                                    .map(|r| match r {
-                                        Record::Null => DbValue::Null,
-                                        Record::Integer(i) => DbValue::Integer(i),
-                                        Record::Float(_) => unimplemented!("float :/"),
-                                        Record::Blob(b) => DbValue::Blob(b),
-                                        Record::String(s) => DbValue::Text(s),
-                                        Record::Zero => DbValue::Integer(0),
-                                    })
-                                    .collect();
-                                let mut map: HashMap<String, DbValue> = col_pos
-                                    .clone()
-                                    .into_iter()
-                                    .map(|(k, v)| (k.clone(), row[v].clone()))
-                                    .collect();
-                                // FIXME: questo necessita di rework
-                                for col in columns {
-                                    // NOTE: We are looking for a INTEGER PRIMARY KEY columns,
-                                    // which sqlite substitutes the rowid for automatically
-                                    // FIXME: in più non mi piace per nulla
-                                    if ColType::INTEGER == col.typ
-                                        && col
-                                            .constraint
-                                            .iter()
-                                            .any(|cont| matches!(cont, ColumnConstraint::Pk { .. }))
-                                    {
-                                        map.insert(col.name.clone(), DbValue::Integer(rowid));
-                                    }
-                                }
+                let rows = table_reader
+                    .scan_table(rootpage as usize, self, &|_, _| true)
+                    .expect("sono morto male");
 
-                                if let DbValue::Bool(b) = filter(&map) {
-                                    b
-                                } else {
-                                    false
-                                }
-                            })
-                            .expect("ahiahi mamacita")
-                    }
-                    None => table_reader
-                        .scan_table(rootpage as usize, self, &|_, _| true)
-                        .expect("ohnoes"),
-                };
-                println!("Q: {from:?} {filter:?}");
-                for (i, (id, v)) in rows.iter().enumerate() {
-                    println!("Row {i}[{id}]: {:?}", Record::read_row(v.as_slice()))
-                }
+                let rows = rows
+                    .iter()
+                    .map(|(i, r)| {
+                        Row::new(
+                            DbValue::Integer(*i),
+                            Record::read_row(r.as_slice())
+                                .unwrap()
+                                .into_iter()
+                                .map(|rec| match rec {
+                                    Record::Null => DbValue::Null,
+                                    Record::Integer(i) => DbValue::Integer(i),
+                                    Record::Float(f) => DbValue::Float(f),
+                                    Record::Blob(b) => DbValue::Blob(b),
+                                    Record::String(s) => DbValue::Text(s),
+                                    Record::Zero => DbValue::Integer(0),
+                                })
+                                .collect(),
+                        )
+                    })
+                    .collect();
+                let mut table = Table::new(columns, rows);
                 //SELECT *
                 //code generation I guess lol kill me
                 let empty;
@@ -262,50 +234,14 @@ impl Visit<QueryStep> for DbAccess {
                         .collect();
                     fields = &empty;
                 }
-                let mut f = Vec::new();
-                for field in fields {
-                    println!("Penso che stiamo morendo qui {field:?}");
-                    let e = expression::precompile_expr(field);
-                    f.push(e);
+                if let Some(f) = filter {
+                    eprintln!("Found filter {filter:?}");
+                    table = table.apply(QueryFilter::new(f.clone()));
                 }
-                let mut res = Vec::new();
-                for (rowid, row) in rows {
-                    let row = Record::read_row(row.as_slice()).expect(":c");
-                    let row: Vec<DbValue> = row
-                        .into_iter()
-                        .map(|r| match r {
-                            Record::Null => DbValue::Null,
-                            Record::Integer(i) => DbValue::Integer(i),
-                            Record::Float(_) => unimplemented!("float :/"),
-                            Record::Blob(b) => DbValue::Blob(b),
-                            Record::String(s) => DbValue::Text(s),
-                            Record::Zero => DbValue::Integer(0),
-                        })
-                        .collect();
-                    let mut map: HashMap<String, DbValue> = col_pos
-                        .clone()
-                        .into_iter()
-                        .map(|(k, v)| (k.clone(), row[v].clone()))
-                        .collect();
-                    // FIXME: questo necessita di rework
-                    for col in columns {
-                        // NOTE: We are looking for a INTEGER PRIMARY KEY columns,
-                        // which sqlite substitutes the rowid for automatically
-                        // FIXME: in più non mi piace per nulla
-                        if ColType::INTEGER == col.typ
-                            && col
-                                .constraint
-                                .iter()
-                                .any(|cont| matches!(cont, ColumnConstraint::Pk { .. }))
-                        {
-                            map.insert(col.name.clone(), DbValue::Integer(rowid));
-                        }
-                    }
-                    let row = f.iter().map(|expr| expr(&map)).collect();
 
-                    res.push(row);
-                }
-                QueryStep::QueryResult(res)
+                // PERF: I should really avoid cloning come on
+                table = table.apply(QuerySelect::new(fields.to_vec()));
+                QueryStep::QueryResult(table)
             }
         }
     }

@@ -1,4 +1,5 @@
 use anyhow::{bail, Result};
+use itertools::Itertools;
 use std::fs::File;
 
 use crate::database::DbAccess;
@@ -38,8 +39,13 @@ fn main() -> Result<()> {
             println!("{names}");
         }
         query => {
-            let rows = dbaccess.run_query(query);
-            println!("{rows:?}");
+            let tables = dbaccess.run_query(query);
+            for table in tables {
+                println!("{}", table.columns.iter().map(|c| c.name()).join("\t|\t"));
+                for row in table.rows {
+                    println!("{row:?}");
+                }
+            }
         }
         _ => bail!("Missing or invalid command passed: {}", command),
     }

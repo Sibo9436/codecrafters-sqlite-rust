@@ -169,3 +169,8 @@ impl From<Record> for DbValue {
         }
     }
 }
+impl From<&Record> for DbValue {
+    fn from(value: &Record) -> Self {
+        value.clone().into()
+    }
+}

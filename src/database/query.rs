@@ -13,16 +13,28 @@ pub(crate) struct Column {
     col: ColumnDefinition,
     active: bool,
 }
+
+impl Column {
+    pub fn name(&self) -> &str {
+        &self.col.name
+    }
+}
 #[derive(Debug)]
 pub(crate) struct Table {
-    columns: Vec<Column>,
-    rows: Vec<Row>,
+    pub columns: Vec<Column>,
+    pub rows: Vec<Row>,
 }
 
 #[derive(Debug)]
 pub(crate) struct Row {
-    id: DbValue,
-    row: Vec<DbValue>,
+    pub id: DbValue,
+    pub row: Vec<DbValue>,
+}
+
+impl Row {
+    pub(crate) fn new(id: DbValue, row: Vec<DbValue>) -> Self {
+        Self { id, row }
+    }
 }
 
 // PERF: this seems extremely inefficient but we'll fiddle with it later
@@ -31,8 +43,21 @@ pub(crate) trait QueryOperation {
     fn apply(&mut self, t: Table) -> Table;
 }
 impl Table {
-    fn apply<T: QueryOperation>(self, mut q: T) -> Self {
+    pub(crate) fn apply<T: QueryOperation>(self, mut q: T) -> Self {
         q.apply(self)
+    }
+
+    pub(crate) fn new(columns: &[ColumnDefinition], rows: Vec<Row>) -> Self {
+        Self {
+            columns: columns
+                .iter()
+                .map(|c| Column {
+                    col: c.clone(),
+                    active: true,
+                })
+                .collect(),
+            rows,
+        }
     }
 }
 
@@ -40,6 +65,7 @@ pub(crate) struct QueryFilter {
     expr: Box<RunnableExpr>,
 }
 
+#[derive(Debug)]
 pub(crate) struct RowEntry<'a> {
     row: &'a Row,
     cols: &'a [&'a ColumnDefinition],
@@ -103,10 +129,13 @@ impl QuerySelect {
         Self {
             col_names: col_extractors
                 .iter()
-                .map(|e| {
-                    let mut p = AstPrinter(String::new());
-                    p.visit_expr(e);
-                    p.0
+                .map(|e| match e {
+                    Expr::Identifier { value } => value.to_owned(),
+                    Expr::Literal { value } => format!("{value:?}"),
+                    Expr::Binary { .. } => String::from("Binary"),
+                    Expr::Unary { .. } => String::from("unary"),
+                    Expr::Function { .. } => todo!(),
+                    Expr::Grouping { .. } => todo!(),
                 })
                 .collect(),
             col_extractors: col_extractors.into_iter().map(|e| e.precompile()).collect(),
@@ -153,7 +182,28 @@ impl QueryOperation for QuerySelect {
                 active: true,
             })
             .collect();
+        eprintln!("{:?}", t.columns);
         t.rows = rows;
         t
     }
 }
+
+// We try and rework it all with a query context, which allows me to define a set of functions that
+// can be called in a specific context
+
+//or maybe just a cursor -> which could then be a little bit more efficient when we start using
+//indices
+
+// NOTE: la nuova idea è quella di scorrere un btree (table ma poi anche index) attraverso un cursore e chiamare next per
+// andare al successivo
+// fine
+// in più sarà prerogativa di chi implementa cursor quella di fare la magia delle colonne eccetera
+// non del tutto vero perché la magia delle colonne serve ovunque
+pub(crate) trait RowCursor {
+    // NOTE: we do not support NOROWID tables
+    fn rowid(&self) -> &DbValue;
+    fn column(&self, colpos: usize) -> Option<&DbValue>;
+    fn next(&mut self) -> Option<()>;
+}
+
+struct QueryContext {}
